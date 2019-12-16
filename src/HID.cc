@@ -76,6 +76,7 @@ private:
 
   static NAN_METHOD(New);
   static NAN_METHOD(read);
+  static NAN_METHOD(writeAsync);
   static NAN_METHOD(write);
   static NAN_METHOD(close);
   static NAN_METHOD(setNonBlocking);
@@ -89,6 +90,9 @@ private:
 
   static void recvAsync(uv_work_t* req);
   static void recvAsyncDone(uv_work_t* req);
+
+  static void writeAsyncInner(uv_work_t* req);
+  static void writeAsyncDone(uv_work_t* req);
 
 
   struct ReceiveIOCB {
@@ -108,6 +112,28 @@ private:
     HID* _hid;
     Nan::Callback *_callback;
     JSException* _error;
+    vector<unsigned char> _data;
+  };
+  struct WriteIOCB {
+    WriteIOCB(HID* hid, Nan::Callback *callback, const vector<unsigned char>& data)
+      : _hid(hid),
+        _callback(callback),
+        _error(0),
+        _res(0),
+        _data(std::move(data))
+    {}
+
+    ~WriteIOCB()
+    {
+      if (_error) {
+        delete _error;
+      }
+    }
+
+    HID* _hid;
+    Nan::Callback *_callback;
+    JSException* _error;
+    int _res;
     vector<unsigned char> _data;
   };
 
@@ -173,6 +199,54 @@ HID::write(const databuf_t& message)
 }
 
 void
+HID::writeAsyncInner(uv_work_t* req)
+{
+  WriteIOCB* iocb = static_cast<WriteIOCB*>(req->data);
+  HID* hid = iocb->_hid;
+
+  int res = hid_write(hid->_hidHandle, iocb->_data.data(), iocb->_data.size());
+  if (res < 0) {
+    iocb->_error = new JSException("Cannot write to HID device");
+  } else {
+    iocb->_res = res;
+  }
+}
+
+void
+HID::writeAsyncDone(uv_work_t* req)
+{
+  Nan::HandleScope scope;
+  WriteIOCB* iocb = static_cast<WriteIOCB*>(req->data);
+
+  Local<Value> argv[2];
+  argv[0] = Nan::Undefined();
+  argv[1] = Nan::Undefined();
+
+  if (iocb->_error) {
+    argv[0] = Exception::Error(Nan::New<String>(iocb->_error->message().c_str()).ToLocalChecked());
+  } else {
+    argv[1] = Nan::New(iocb->_res);
+  }
+  iocb->_hid->Unref();
+
+  if (iocb->_callback) {
+    Nan::TryCatch tryCatch;
+    //iocb->_callback->Call(2, argv);
+    Nan::AsyncResource resource("node-hid recvAsyncDone");
+    iocb->_callback->Call(2, argv, &resource);
+    if (tryCatch.HasCaught()) {
+        Nan::FatalException(tryCatch);
+    }
+
+    delete iocb->_callback;
+  }
+
+  delete req;
+
+  delete iocb;
+}
+
+void
 HID::recvAsync(uv_work_t* req)
 {
   ReceiveIOCB* iocb = static_cast<ReceiveIOCB*>(req->data);
@@ -233,6 +307,54 @@ HID::recvAsyncDone(uv_work_t* req)
   delete iocb;
 }
 
+vector<unsigned char> parseToByteArray(v8::Local<v8::Value> arg) {
+  vector<unsigned char> message;
+  if (Buffer::HasInstance(arg)) {
+    uint32_t len = Buffer::Length(arg);
+    unsigned char* data = (unsigned char *)Buffer::Data(arg);
+    message.assign(data, data + len);
+  } else {
+    Local<Array> messageArray = Local<Array>::Cast(arg);
+    message.reserve(messageArray->Length());
+
+    for (unsigned i = 0; i < messageArray->Length(); i++) {
+      Local<Value> v = Nan::Get(messageArray, i).ToLocalChecked();
+      if (!v->IsNumber()) {
+        throw JSException("unexpected array element in array to send, expecting only integers");
+      }
+      uint32_t b = Nan::To<uint32_t>(v).FromJust();
+      message.push_back((unsigned char) b);
+    }
+  }
+  return message;
+}
+
+NAN_METHOD(HID::writeAsync)
+{
+  Nan::HandleScope scope;
+
+  if (info.Length() >= 2 && !info[1]->IsFunction()) {
+    return Nan::ThrowError("second argument must be a callback function in writeAsync");
+  }
+  if (info.Length() == 0) {
+    return Nan::ThrowError("need one data parameter in writeAsync");
+  }
+
+  HID* hid = Nan::ObjectWrap::Unwrap<HID>(info.This());
+  hid->Ref();
+
+  Nan::Callback* cb = nullptr;
+  if (info[1]->IsFunction()) {
+    cb = new Nan::Callback(Local<Function>::Cast(info[1]));
+  }
+
+  uv_work_t* req = new uv_work_t;
+  req->data = new WriteIOCB(hid, cb, parseToByteArray(info[0]));
+  uv_queue_work(uv_default_loop(), req, writeAsyncInner, (uv_after_work_cb)writeAsyncDone);
+
+  return;
+}
+
 NAN_METHOD(HID::read)
 {
   Nan::HandleScope scope;
@@ -246,7 +368,7 @@ NAN_METHOD(HID::read)
   hid->Ref();
 
   uv_work_t* req = new uv_work_t;
-  req->data = new ReceiveIOCB(hid, new Nan::Callback(Local<Function>::Cast(info[0])));;
+  req->data = new ReceiveIOCB(hid, new Nan::Callback(Local<Function>::Cast(info[0])));
   uv_queue_work(uv_default_loop(), req, recvAsync, (uv_after_work_cb)recvAsyncDone);
 
   return;
@@ -347,24 +469,7 @@ NAN_METHOD(HID::sendFeatureReport)
 
   HID* hid = Nan::ObjectWrap::Unwrap<HID>(info.This());
 
-  vector<unsigned char> message;
-  if (Buffer::HasInstance(info[0])) {
-    uint32_t len = Buffer::Length(info[0]);
-    unsigned char* data = (unsigned char *)Buffer::Data(info[0]);
-    message.assign(data, data + len);
-  } else {
-    Local<Array> messageArray = Local<Array>::Cast(info[0]);
-    message.reserve(messageArray->Length());
-
-    for (unsigned i = 0; i < messageArray->Length(); i++) {
-      Local<Value> v = Nan::Get(messageArray, i).ToLocalChecked();
-      if (!v->IsNumber()) {
-        throw JSException("unexpected array element in array to send, expecting only integers");
-      }
-      int32_t b = Nan::To<int32_t>(v).FromJust();
-      message.push_back((unsigned char) b);
-    }
-  }
+  vector<unsigned char> message = parseToByteArray(info[0]);
 
   int returnedLength = hid_send_feature_report(hid->_hidHandle, message.data(), message.size());
   if (returnedLength == -1) { // Not sure if there would ever be a valid return value of 0.
@@ -458,24 +563,7 @@ NAN_METHOD(HID::write)
   try {
     HID* hid = Nan::ObjectWrap::Unwrap<HID>(info.This());
 
-    vector<unsigned char> message;
-    if (Buffer::HasInstance(info[0])) {
-      uint32_t len = Buffer::Length(info[0]);
-      unsigned char* data = (unsigned char *)Buffer::Data(info[0]);
-      message.assign(data, data + len);
-    } else {
-      Local<Array> messageArray = Local<Array>::Cast(info[0]);
-      message.reserve(messageArray->Length());
-      
-      for (unsigned i = 0; i < messageArray->Length(); i++) {
-        Local<Value> v = Nan::Get(messageArray, i).ToLocalChecked();
-        if (!v->IsNumber()) {
-          throw JSException("unexpected array element in array to send, expecting only integers");
-        }
-        uint32_t b = Nan::To<uint32_t>(v).FromJust();
-        message.push_back((unsigned char) b);
-      }
-    }
+    vector<unsigned char> message = parseToByteArray(info[0]);    
     int returnedLength = hid->write(message); // returns number of bytes written
 
     info.GetReturnValue().Set(Nan::New<Integer>(returnedLength));
@@ -613,6 +701,7 @@ HID::Initialize(Local<Object> target)
   Nan::SetPrototypeMethod(hidTemplate, "close", close);
   Nan::SetPrototypeMethod(hidTemplate, "read", read);
   Nan::SetPrototypeMethod(hidTemplate, "write", write);
+  Nan::SetPrototypeMethod(hidTemplate, "writeAsync", writeAsync);
   Nan::SetPrototypeMethod(hidTemplate, "getFeatureReport", getFeatureReport);
   Nan::SetPrototypeMethod(hidTemplate, "sendFeatureReport", sendFeatureReport);
   Nan::SetPrototypeMethod(hidTemplate, "setNonBlocking", setNonBlocking);
