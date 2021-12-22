@@ -66,7 +66,7 @@
             'type': 'static_library',
             'conditions': [
                 [ 'OS=="mac"', {
-                    'sources': [ 'hidapi/mac/hid.c' ],
+                    'sources': [ 'hidapi2/mac/hid.c' ],
                     'include_dirs+': ['/usr/include/libusb-1.0/'],
                     'xcode_settings': {
                         'OTHER_CFLAGS': ['-Wno-sign-compare'],
@@ -74,12 +74,12 @@
                     }
                 }],
                 [ 'OS=="freebsd"', {
-                    'sources': [ 'hidapi/libusb/hid.c' ],
+                    'sources': [ 'hidapi2/libusb/hid.c' ],
                 }],
                 [ 'OS=="linux"', {
                     'conditions': [
                         [ 'driver=="libusb"', {
-                            'sources': [ 'hidapi/libusb/hid.c' ],
+                            'sources': [ 'hidapi2/libusb/hid.c' ],
                             'conditions': [
                                 ['node_hid_no_pkg_config != 1', {
                                     'include_dirs+': ['<!@(pkg-config libusb-1.0 --cflags-only-I | sed s/-I//g)']
@@ -87,12 +87,12 @@
                             ]
                         }],
                         [ 'driver=="hidraw"', {
-                            'sources': [ 'hidapi/linux/hid.c' ]
+                            'sources': [ 'hidapi2/linux/hid.c' ]
                         }]
                     ]
                 }],
                 [ 'OS=="win"', {
-                    'sources': [ 'hidapi/windows/hid.c' ],
+                    'sources': [ 'hidapi2/windows/hid.c' ],
                     'msvs_settings': {
                         'VCCLCompilerTool': {
                             'ExceptionHandling': '2', # /EHsc
@@ -106,11 +106,11 @@
             ],
             'direct_dependent_settings': {
                 'include_dirs': [
-                    'hidapi/hidapi',
+                    'hidapi2/hidapi',
                     "<!@(node -p \"require('node-addon-api').include\")"
                 ]
             },
-            'include_dirs': ['hidapi/hidapi'],
+            'include_dirs': ['hidapi2/hidapi'],
             'defines': [
                 '_LARGEFILE_SOURCE',
                 '_FILE_OFFSET_BITS=64',
@@ -144,14 +144,14 @@
                 {
                     'target_name': 'hidapi-linux-hidraw',
                     'type': 'static_library',
-                    'sources': [ 'hidapi/linux/hid.c' ],
+                    'sources': [ 'hidapi2/linux/hid.c' ],
                     'direct_dependent_settings': {
                         'include_dirs': [
-                            'hidapi/hidapi',
+                            'hidapi2/hidapi',
                             "<!@(node -p \"require('node-addon-api').include\")"
                         ]
                     },
-                    'include_dirs': ['hidapi/hidapi' ],
+                    'include_dirs': ['hidapi2/hidapi' ],
                     'defines': [
                         '_LARGEFILE_SOURCE',
                         '_FILE_OFFSET_BITS=64',
