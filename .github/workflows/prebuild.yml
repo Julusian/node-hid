@@ -42,11 +42,6 @@ jobs:
         env:
           CI: true
 
-      - name: prebuild m1
-        if: runner.os == 'macOS'
-        run: |
-          npm --verbose run prebuild -- --arch=arm64
-
       - name: Upload articats
         uses: actions/upload-artifact@v1
         with:
@@ -74,7 +69,7 @@ jobs:
         run: |
           yarn
           # TODO - this should be yarn, but that is failing on windows
-          npm --verbose run prebuild --arch=arm64
+          npm --verbose run prebuild -- --arch=arm64
         env:
           CI: true
 
