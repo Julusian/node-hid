@@ -42,15 +42,54 @@ jobs:
         env:
           CI: true
 
+      - name: prebuild m1
+        if: runner.os == 'macOS'
+        run: |
+          npm --verbose run prebuild --arch=arm64
+
       - name: Upload articats
         uses: actions/upload-artifact@v1
         with:
           name: ${{ runner.os }}-prebuilds
           path: prebuilds
+  test2:
+    name: Build m1
+    runs-on: macos-11
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Checkout submodules
+        shell: bash
+        run: |
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+      - name: Use Node.js 14.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14.x
+
+      - name: yarn prebuild
+        run: |
+          yarn
+          # TODO - this should be yarn, but that is failing on windows
+          npm --verbose run prebuild --arch=arm64
+        env:
+          CI: true
+
+
+      - name: Upload articats
+        uses: actions/upload-artifact@v1
+        with:
+          name: m1-prebuilds
+          path: prebuilds
 
   publish:
     name: Publish builds to release
-    needs: test
+    needs: 
+      - test
+      - test2
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -70,11 +109,16 @@ jobs:
         uses: actions/download-artifact@v1
         with:
           name: macOS-prebuilds
+      - name: Download m1 articats
+        uses: actions/download-artifact@v1
+        with:
+          name: m1-prebuilds
       - name: Upload to Release
         run: |
           mkdir prebuilds
-          cp -R Linux-prebuilds/*/* prebuilds/
-          cp -R Windows-prebuilds/*/* prebuilds/
-          cp -R macOS-prebuilds/*/* prebuilds/
+          cp -R Linux-prebuilds/* prebuilds/
+          cp -R Windows-prebuilds/* prebuilds/
+          cp -R macOS-prebuilds/* prebuilds/
+          cp -R m1-prebuilds/* prebuilds/
           yarn --ignore-scripts
           npx prebuild --upload-all ${{ secrets.GITHUB_TOKEN }}
