@@ -45,7 +45,7 @@ jobs:
       - name: prebuild m1
         if: runner.os == 'macOS'
         run: |
-          npm --verbose run prebuild --arch=arm64
+          npm --verbose run prebuild -- --arch=arm64
 
       - name: Upload articats
         uses: actions/upload-artifact@v1
