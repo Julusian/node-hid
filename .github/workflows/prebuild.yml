@@ -36,6 +36,7 @@ jobs:
 
       - name: yarn prebuild
         run: |
+          yarn
           # TODO - this should be yarn, but that is failing on windows
           npm --verbose run prebuild
         env:
