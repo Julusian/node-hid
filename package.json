@@ -44,5 +44,15 @@
   "devDependencies": {
     "rimraf": "^2.6.2"
   },
-  "gypfile": true
+  "gypfile": true,
+  "files": [
+    "nodehid.js",
+    "binding-options.js",
+    "hidapi",
+    "prebuilds",
+    "src/*.cc",
+    "LICENSE*",
+    "README.md",
+    "binding.gyp"
+  ]
 }
