@@ -53,6 +53,7 @@
     "hidapi",
     "prebuilds",
     "src/*.cc",
+    "src/*.h",
     "LICENSE*",
     "README.md",
     "binding.gyp"
